@@ -31,7 +31,7 @@ def tool_call():
             return jsonify({"error": f"unknown tool name '{tool_name}'"}), 400
         if not isinstance(params, dict):
             return jsonify({"error": "parameters must be an object"}), 400
-        result = handle_tool_call_from_claude(params)
+        result = handle_tool_call_from_claude(tool_name, params)
         return jsonify(result), (200 if "error" not in result else 400)
     except Exception as e:
         import traceback, sys
