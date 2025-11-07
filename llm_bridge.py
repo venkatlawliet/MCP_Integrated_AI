@@ -16,8 +16,8 @@ def answer_with_claude(context_text: str, question: str,
         model=model,
         enable_tools=False,     
         max_tokens=max_tokens,
-        show_tool_output=False,
-        tool_only=False,
+        #show_tool_output=False,
+        #tool_only=False,
         progress_callback=None
     )
 
@@ -39,7 +39,7 @@ def answer_with_claude(context_text: str, question: str,
     return "\n".join(t for t in (s.strip() for s in texts) if t) or "No clear answer found."
 
 def answer_with_llama(context_text: str, question: str,
-                     model: str = "llama3.1-8b-instant",
+                     model: str = "llama-3.1-8b-instant",
                      max_tokens: int = 1024) -> str:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:

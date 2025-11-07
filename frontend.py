@@ -13,6 +13,8 @@ from hybrid_partition_ingest import (
 from claude_mcp_client import ClaudeMCPClient
 from groq import Groq
 from sentence_transformers import SentenceTransformer
+from claude_research_agent import ClaudeResearchAgent
+from d2_utils import llm_generate_d2, render_d2_to_svg
 st.set_page_config(page_title="ResearchMCP", page_icon="🪐", layout="wide")
 st.markdown(
     """
@@ -54,7 +56,7 @@ INSTRUCTIONS = (
 )
 text_model = SentenceTransformer("nomic-ai/nomic-embed-text-v1", trust_remote_code=True)
 def answer_with_llama(context_text: str, question: str,
-                      model: str = "llama3.1-8b-instant",
+                      model: str = "llama-3.1-8b-instant",
                       max_tokens: int = 1024) -> str:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -175,23 +177,45 @@ if st.session_state.get("paper_ingested", False):
     st.markdown("Ask about the ingested paper")
     paper_q = st.text_area("Ask about this paper:", height=120)
     if st.button("Get Answer from Paper"):
-        with st.status("Retrieving and querying LLM...", expanded=True) as s3:
-            try:
-                text_results = query_ade_index(
-                    paper_q,
+        st.session_state.original_query = paper_q
+        research_agent = ClaudeResearchAgent()
+        decision = research_agent.decide_and_rewrite(paper_q)
+        with st.expander("Rewritten or parsed query", expanded=False):
+                    st.text_area("query to be passed to Pinecone", value=decision["rephrased_query"], height=300)
+        intent = decision["intent"]
+        rewritten_q = decision["rephrased_query"]
+        original_q = decision["original_query"]
+        if intent == "generate":
+            with st.status("Retrieving context for diagram...", expanded=True) as s:
+                results = query_ade_index(
+                    rewritten_q,
                     bm25=st.session_state.bm25,
                     dense_model=text_model,
                     top_k=5,
                     alpha=0.3,
                 )
-                ctx = build_llm_context(text_results)
-                with st.expander("Show Retrieved Context", expanded=False):
-                    st.markdown("**Retrieved context:**")
-                    st.write(ctx)
-                final = answer_with_llama(ctx, paper_q, model="llama-3.1-8b-instant", max_tokens=1024)
-                s3.update(label="Done", state="complete")
+                ctx = build_llm_context(results)
+                result = llm_generate_d2(ctx, st.session_state.original_query)
+                raw_response = result["raw_response"]
+                d2_code = result["d2_code"]
+                svg_path = render_d2_to_svg(d2_code)
+                with st.expander("View LLM Generated Response (Raw OutputD2 code)", expanded=False):
+                    st.text_area("Raw LLM Output", value=raw_response, height=300)
+                with st.expander("View Extracted D2 Code (Filtered for Rendering)", expanded=False):
+                    st.code(d2_code, language="d2")
+                s.update(label="Diagram ready!", state="complete")
+                st.image(svg_path, caption="Generated diagram", use_column_width=False, width=800)
+        else:
+            with st.status("Retrieving and querying LLM...", expanded=True) as s:
+                results = query_ade_index(
+                    rewritten_q,
+                    bm25=st.session_state.bm25,
+                    dense_model=text_model,
+                    top_k=5,
+                    alpha=0.3,
+                )
+                ctx = build_llm_context(results)
+                final = answer_with_llama(ctx, original_q)
+                s.update(label="Done", state="complete")
                 st.subheader("Answer")
                 st.write(final)
-            except Exception as e:
-                s3.update(label="Error during retrieval/LLM.", state="error")
-                st.error(str(e))
